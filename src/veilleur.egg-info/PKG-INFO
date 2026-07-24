@@ -1,7 +1,0 @@
-Metadata-Version: 2.4
-Name: veilleur
-Version: 1.0.0
-Summary: Moniteur de disponibilité Ticketmaster.fr — HTTP direct uniquement (CDC v1.1)
-Requires-Python: >=3.11
-Requires-Dist: requests>=2.31
-Requires-Dist: PyYAML>=6.0
