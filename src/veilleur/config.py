@@ -28,6 +28,18 @@ class Evenement:
     libelle: str
     categories: tuple[str, ...] = ()  # optionnel : filtres de libellé (insensibles casse/accents)
 
+    @property
+    def cle(self) -> str:
+        """Clé UNIQUE de l'entrée pour l'état, les échéances et le backoff.
+
+        Deux entrées peuvent partager le même idmanif avec des filtres différents :
+        indexer sur tm_event_id seul ferait partager état et échéance (famine de la
+        seconde entrée en run, fausses alertes croisées en check-once).
+        """
+        if not self.categories:
+            return self.tm_event_id
+        return self.tm_event_id + "#" + "|".join(self.categories)
+
 
 @dataclass
 class Config:
@@ -61,7 +73,10 @@ def _extraire_id(url: str) -> str:
 def load_config(path: str) -> Config:
     """Charge le YAML, valide chaque événement et les bornes. Lève ConfigError sinon."""
     with open(path, encoding="utf-8") as f:
-        brut = yaml.safe_load(f) or {}
+        try:
+            brut = yaml.safe_load(f) or {}
+        except yaml.YAMLError as exc:
+            raise ConfigError(f"YAML invalide : {exc}") from exc
     if not isinstance(brut, dict):
         raise ConfigError("le fichier de configuration doit être un mapping YAML")
 
@@ -84,17 +99,20 @@ def load_config(path: str) -> Config:
         deja_vus.add(cle)
         evenements.append(Evenement(url=url, tm_event_id=tm_id, libelle=libelle, categories=cats))
 
-    cfg = Config(
-        evenements=evenements,
-        webhook_discord=str(brut.get("webhook_discord") or "").strip() or None,
-        intervalle_secondes=int(brut.get("intervalle_secondes", 60)),
-        jitter_secondes=int(brut.get("jitter_secondes", 5)),
-        timeout_secondes=int(brut.get("timeout_secondes", 15)),
-        backoff_max_secondes=int(brut.get("backoff_max_secondes", 900)),
-        user_agent=str(brut.get("user_agent") or Config.user_agent),
-        etat_fichier=str(brut.get("etat_fichier") or "./state.json"),
-        verbosite=str(brut.get("verbosite") or "INFO"),
-    )
+    try:
+        cfg = Config(
+            evenements=evenements,
+            webhook_discord=str(brut.get("webhook_discord") or "").strip() or None,
+            intervalle_secondes=int(brut.get("intervalle_secondes", 60)),
+            jitter_secondes=int(brut.get("jitter_secondes", 5)),
+            timeout_secondes=int(brut.get("timeout_secondes", 15)),
+            backoff_max_secondes=int(brut.get("backoff_max_secondes", 900)),
+            user_agent=str(brut.get("user_agent") or Config.user_agent),
+            etat_fichier=str(brut.get("etat_fichier") or "./state.json"),
+            verbosite=str(brut.get("verbosite") or "INFO"),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"valeur de configuration invalide : {exc}") from exc
 
     if cfg.intervalle_secondes < PLANCHER_INTERVALLE_S:
         raise ConfigError(

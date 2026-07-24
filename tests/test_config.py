@@ -80,6 +80,29 @@ def test_backoff_max_sous_l_intervalle_rejete(tmp_path):
         load_config(_ecrire(tmp_path, MINIMAL + "backoff_max_secondes: 30\n"))
 
 
+def test_yaml_malforme_donne_configerror(tmp_path):
+    with pytest.raises(ConfigError):
+        load_config(_ecrire(tmp_path, "evenements: [\n  broken"))
+
+
+def test_valeur_numerique_invalide_donne_configerror(tmp_path):
+    with pytest.raises(ConfigError):
+        load_config(_ecrire(tmp_path, MINIMAL + "intervalle_secondes: soixante\n"))
+
+
+def test_meme_idmanif_filtres_differents_accepte_avec_cles_distinctes(tmp_path):
+    contenu = (
+        MINIMAL
+        + "  - url: https://www.ticketmaster.fr/fr/manifestation/y-billet/idmanif/642735\n"
+        + "    categories: [Fosse]\n"
+    )
+    cfg = load_config(_ecrire(tmp_path, contenu))
+    cles = [ev.cle for ev in cfg.evenements]
+    assert len(set(cles)) == 2  # jamais de collision d'état entre les deux entrées
+    assert cles[0] == "642735"
+    assert cles[1] == "642735#Fosse"
+
+
 def test_webhook_charge(tmp_path):
     cfg = load_config(_ecrire(tmp_path, MINIMAL + "webhook_discord: https://discord.com/api/webhooks/a/b\n"))
     assert cfg.webhook_discord == "https://discord.com/api/webhooks/a/b"

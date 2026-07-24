@@ -49,6 +49,38 @@ def test_structure_inattendue_mise_de_cote(tmp_path):
     assert (tmp_path / "state.json.corrompu").exists()
 
 
+def test_sauver_sans_faute_absorbe_le_verrou(tmp_path, monkeypatch):
+    # §5.2 : un verrou Windows sur state.json ne doit jamais tuer la surveillance
+    etat = Etat.charger(str(tmp_path / "state.json"))
+
+    def replace_verrouille(src, dst):
+        raise OSError("fichier verrouillé par un autre processus")
+
+    monkeypatch.setattr(os, "replace", replace_verrouille)
+    assert etat.sauver_sans_faute() is False  # journalisé, pas levé
+
+
+def test_entree_evenement_mal_formee_ecartee(tmp_path):
+    chemin = tmp_path / "state.json"
+    chemin.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "evenements": {
+                    "111": {"categories": {"Fosse": {"disponible": True}}},
+                    "222": {"categories": "pas-un-dict"},
+                    "333": ["liste"],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    etat = Etat.charger(str(chemin))
+    assert "111" in etat.data["evenements"]
+    assert "222" not in etat.data["evenements"]  # écartée : nouvelle baseline
+    assert "333" not in etat.data["evenements"]
+
+
 def test_compteurs_partiels_completes(tmp_path):
     chemin = tmp_path / "state.json"
     chemin.write_text(

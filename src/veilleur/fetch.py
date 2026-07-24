@@ -48,13 +48,30 @@ def normaliser_libelle(texte: str) -> str:
     return "".join(c for c in decompose if not unicodedata.combining(c))
 
 
+def _fusionner_prix(a: str | None, b: Any) -> str | None:
+    """Prix minimum connu entre l'existant et une nouvelle séance de même libellé."""
+    if b is None:
+        return a
+    if a is None:
+        return str(b)
+    try:
+        return str(min(float(a), float(b)))
+    except (TypeError, ValueError):
+        return a
+
+
 def parse_payload(payload: Any, filtres: tuple[str, ...] = ()) -> list[CategoryAvailability]:
     """Normalise la réponse liste-seance (F3). Une liste vide est un état valide
-    (plus rien à la vente), pas une erreur de parsing."""
+    (plus rien à la vente), pas une erreur de parsing.
+
+    Les séances partageant un même libellé sont FUSIONNÉES (disponible si l'une l'est,
+    prix minimum connu) : une clé doit être unique dans un relevé, sinon l'état persisté
+    oscillerait entre les doublons et rejouerait la même alerte à chaque relevé (F5).
+    """
     if not isinstance(payload, list):
         raise ParseInvalide(f"réponse inattendue (type {type(payload).__name__})")
     filtres_norm = [normaliser_libelle(f) for f in filtres]
-    resultat: list[CategoryAvailability] = []
+    fusion: dict[str, CategoryAvailability] = {}  # dict ordonné : ordre du payload conservé
     for seance in payload:
         if not isinstance(seance, dict):
             raise ParseInvalide("élément de liste inattendu (pas un objet)")
@@ -62,16 +79,24 @@ def parse_payload(payload: Any, filtres: tuple[str, ...] = ()) -> list[CategoryA
         libelle = str(labels[0]) if labels else str(seance.get("dateSeance") or seance.get("idSeance") or "?")
         if filtres_norm and not any(f in normaliser_libelle(libelle) for f in filtres_norm):
             continue
+        disponible = bool(seance.get("available"))
         prix = seance.get("priceMin")
-        resultat.append(
-            CategoryAvailability(
+        existant = fusion.get(libelle)
+        if existant is None:
+            fusion[libelle] = CategoryAvailability(
                 categorie=libelle,
-                disponible=bool(seance.get("available")),
+                disponible=disponible,
                 places=None,  # non exposé par l'endpoint liste-seance
                 prix=str(prix) if prix is not None else None,
             )
-        )
-    return resultat
+        else:
+            fusion[libelle] = CategoryAvailability(
+                categorie=libelle,
+                disponible=existant.disponible or disponible,
+                places=existant.places,
+                prix=_fusionner_prix(existant.prix, prix),
+            )
+    return list(fusion.values())
 
 
 @dataclass
@@ -128,7 +153,7 @@ class ClientTicketmaster:
             payload = self._interpreter(reponse, ev)
 
         return AvailabilitySnapshot(
-            event_key=ev.tm_event_id,
+            event_key=ev.cle,
             tm_event_id=ev.tm_event_id,
             horodatage_utc=datetime.now(timezone.utc).isoformat(),
             categories=tuple(parse_payload(payload, ev.categories)),

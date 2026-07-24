@@ -172,6 +172,46 @@ def test_corps_non_json_parse_invalide():
         client.relever(EV)
 
 
+def test_libelles_en_doublon_fusionnes_disponible_si_l_un_l_est():
+    # F5 : sans fusion, l'état oscillerait entre les doublons et rejouerait l'alerte
+    payload = [
+        {"labels": ["Fosse"], "available": True, "priceMin": 80.0},
+        {"labels": ["Fosse"], "available": False, "priceMin": 53.0},
+    ]
+    cats = parse_payload(payload)
+    assert len(cats) == 1
+    assert cats[0].disponible is True
+    assert cats[0].prix == "53.0"  # prix minimum connu
+
+
+def test_libelles_en_doublon_tous_indisponibles():
+    payload = [
+        {"labels": ["Fosse"], "available": False},
+        {"labels": ["Fosse"], "available": False, "priceMin": 40.0},
+    ]
+    cats = parse_payload(payload)
+    assert len(cats) == 1
+    assert cats[0].disponible is False
+    assert cats[0].prix == "40.0"
+
+
+def test_filtres_appliques_a_travers_relever():
+    ev_filtre = Evenement(
+        url=EV.url, tm_event_id="642735", libelle="Test", categories=("dimanche",)
+    )
+    client, _, _ = _client([FakeResponse(200, PAYLOAD)])
+    snap = client.relever(ev_filtre)
+    assert [c.categorie for c in snap.categories] == ["Dimanche 19 juillet 2026 à 15:00"]
+    assert snap.event_key == "642735#dimanche"  # clé composite propre à l'entrée
+
+
+def test_espacement_de_politesse_entre_requetes():
+    client, _, dormeur = _client([FakeResponse(200, PAYLOAD), FakeResponse(200, PAYLOAD)])
+    client.relever(EV)
+    client.relever(EV)  # immédiatement après -> attente imposée
+    assert any(0.0 < d <= 1.0 for d in dormeur)
+
+
 def test_erreur_reseau_deux_fois_puis_succes():
     client, session, dormeur = _client(
         [

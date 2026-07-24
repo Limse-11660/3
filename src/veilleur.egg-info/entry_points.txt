@@ -1,0 +1,2 @@
+[console_scripts]
+veilleur = veilleur.__main__:main

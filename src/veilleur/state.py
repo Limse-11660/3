@@ -46,7 +46,15 @@ class Etat:
                 pass
             return etat
 
-        etat.data["evenements"] = data["evenements"]
+        # Assainissement : une entrée d'événement mal formée (types inattendus) ne doit
+        # pas mettre l'événement en échec permanent — elle est écartée (nouvelle baseline).
+        for cle, valeur in data["evenements"].items():
+            if isinstance(valeur, dict) and (
+                valeur.get("categories") is None or isinstance(valeur.get("categories"), dict)
+            ):
+                etat.data["evenements"][cle] = valeur
+            else:
+                logger.warning("état de %r mal formé — entrée écartée, nouvelle baseline", cle)
         compteurs = data.get("compteurs")
         if isinstance(compteurs, dict):
             for cle in COMPTEURS_DEFAUT:
@@ -59,7 +67,20 @@ class Etat:
         tmp = self.chemin + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(self.data, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())  # durabilité : pas de state.json tronqué sur coupure
         os.replace(tmp, self.chemin)
+
+    def sauver_sans_faute(self) -> bool:
+        """Sauvegarde qui n'interrompt JAMAIS la surveillance (§5.2) : un verrou Windows
+        ou un disque plein est journalisé, l'état reste en mémoire et le prochain relevé
+        retentera l'écriture. Retourne False en cas d'échec."""
+        try:
+            self.sauver()
+            return True
+        except OSError as exc:
+            logger.error("échec d'écriture de l'état (%s) — poursuite, nouvel essai au prochain relevé", exc)
+            return False
 
     def evenement(self, cle: str) -> dict:
         """État persisté d'un événement (créé vide au premier accès)."""

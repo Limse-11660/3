@@ -31,8 +31,8 @@ class FakeClient:
         self.releves = []
 
     def relever(self, ev):
-        self.releves.append(ev.tm_event_id)
-        suivant = self.plan[ev.tm_event_id].pop(0)
+        self.releves.append(ev.cle)
+        suivant = self.plan[ev.cle].pop(0)
         if isinstance(suivant, Exception):
             raise suivant
         return suivant
@@ -137,6 +137,105 @@ def test_jitter_est_un_retard_borne(tmp_path):
     v = _veilleur(tmp_path, {}, jitter=5, alea=alea)
     assert v._prochain_delai(EV_A) == 65.0
     assert releve_alea == [(0.0, 5.0)]  # jamais négatif : retard seul
+
+
+def test_meme_idmanif_deux_entrees_etats_et_baselines_separes(tmp_path, monkeypatch):
+    # Deux entrées partageant l'idmanif (filtres différents) : chacune sa baseline,
+    # aucune fausse alerte croisée, aucun écrasement alterné
+    envois = []
+    monkeypatch.setattr(notify, "envoyer", lambda *a, **k: envois.append(a) or True)
+    ev_tout = EV_A
+    ev_filtre = Evenement(url=EV_A.url, tm_event_id="1111", libelle="A-fosse", categories=("fosse",))
+    plan = {
+        "1111": [_snap("1111", [Cat("Fosse", True), Cat("Balcon", True)])] * 2,
+        "1111#fosse": [_snap("1111", [Cat("Fosse", True)])] * 2,
+    }
+    v = _veilleur(tmp_path, plan, evenements=[ev_tout, ev_filtre])
+    v.balayer_une_fois()
+    v.balayer_une_fois()
+    assert envois == []  # deux baselines distinctes puis relevés stables : zéro alerte
+    assert v.etat.compteurs()["alertes"] == 0
+    assert "1111" in v.etat.data["evenements"]
+    assert "1111#fosse" in v.etat.data["evenements"]
+
+
+def test_meme_idmanif_deux_entrees_toutes_sondees_en_boucle(tmp_path, monkeypatch):
+    # Famine corrigée : la seconde entrée au même idmanif a sa propre échéance
+    monkeypatch.setattr(notify, "envoyer", lambda *a, **k: True)
+    ev_filtre = Evenement(url=EV_A.url, tm_event_id="1111", libelle="A-fosse", categories=("fosse",))
+    v = _veilleur(
+        tmp_path,
+        {"1111": [_snap("1111", [])], "1111#fosse": [_snap("1111", [])]},
+        evenements=[EV_A, ev_filtre],
+    )
+
+    def sommeil_interrompu(s):
+        raise KeyboardInterrupt
+
+    v._sleep = sommeil_interrompu
+    with pytest.raises(KeyboardInterrupt):
+        v.boucle()
+    assert sorted(v.client.releves) == ["1111", "1111#fosse"]
+
+
+def test_releve_vide_transitoire_conserve_l_etat(tmp_path, monkeypatch):
+    # Un 200 avec liste vide n'écrase pas la baseline : pas de rafale de fausses
+    # « nouvelle_categorie » quand les séances reviennent
+    envois = []
+    monkeypatch.setattr(notify, "envoyer", lambda *a, **k: envois.append(a) or True)
+    v = _veilleur(
+        tmp_path,
+        {
+            "1111": [
+                _snap("1111", [Cat("Fosse", True)]),
+                _snap("1111", []),
+                _snap("1111", [Cat("Fosse", True)]),
+            ]
+        },
+    )
+    v.verifier_evenement(EV_A)  # baseline
+    assert v.verifier_evenement(EV_A) == []  # vide transitoire : état conservé
+    assert v.etat.evenement(EV_A.cle)["categories"]["Fosse"]["disponible"] is True
+    assert v.verifier_evenement(EV_A) == []  # retour : rien de nouveau -> aucune alerte
+    assert envois == []
+
+
+def test_echec_ecriture_etat_ne_tue_pas_la_surveillance(tmp_path, monkeypatch):
+    # Constat bloquant de la revue : un verrou sur state.json ne doit pas tuer le processus
+    envois = []
+    monkeypatch.setattr(notify, "envoyer", lambda *a, **k: envois.append(a) or True)
+    v = _veilleur(
+        tmp_path,
+        {"1111": [_snap("1111", [Cat("Fosse", False)]), _snap("1111", [Cat("Fosse", True)])]},
+    )
+    v.verifier_evenement(EV_A)  # baseline (écriture OK)
+
+    def sauver_verrouille():
+        raise OSError("verrou")
+
+    monkeypatch.setattr(v.etat, "sauver", sauver_verrouille)
+    v._verifier_avec_isolation(EV_A)  # ne lève pas
+    assert len(envois) == 1  # l'alerte part quand même (état gardé en mémoire)
+    assert v._erreurs == {}  # pas comptée comme échec de relevé
+
+
+def test_boucle_replanifie_les_echeances(tmp_path, monkeypatch):
+    # La replanification suit l'intervalle : 3 relevés espacés de 60 s en temps simulé
+    monkeypatch.setattr(notify, "envoyer", lambda *a, **k: True)
+    v = _veilleur(tmp_path, {"1111": [_snap("1111", []) for _ in range(3)]})
+    horloge = {"t": 0.0}
+    v._monotone = lambda: horloge["t"]
+
+    def sommeil(s):
+        if len(v.client.releves) >= 3:
+            raise KeyboardInterrupt
+        horloge["t"] += s
+
+    v._sleep = sommeil
+    with pytest.raises(KeyboardInterrupt):
+        v.boucle()
+    assert len(v.client.releves) == 3
+    assert horloge["t"] >= 120.0  # au moins 2 intervalles pleins écoulés
 
 
 def test_boucle_verifie_chaque_evenement_puis_dort(tmp_path, monkeypatch):

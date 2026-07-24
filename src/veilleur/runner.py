@@ -54,8 +54,21 @@ class Veilleur:
     def verifier_evenement(self, ev: Evenement) -> list[Alerte]:
         """Relevé complet d'un événement. Lève une FetchError en cas d'échec."""
         snapshot = self.client.relever(ev)
-        persiste = self.etat.evenement(ev.tm_event_id)
+        persiste = self.etat.evenement(ev.cle)  # clé composite : jamais partagée entre entrées
         precedent = persiste.get("categories")  # None au premier relevé (baseline)
+
+        if not snapshot.categories and precedent:
+            # Un 200 avec liste vide peut être transitoire : écraser la baseline
+            # déclencherait une rafale de fausses « nouvelle_categorie » au retour des
+            # séances. On conserve l'état connu, sans alerte.
+            logger.warning(
+                "%s : relevé vide alors que %d catégorie(s) étaient connues — état conservé",
+                ev.libelle, len(precedent),
+            )
+            self.etat.incrementer("verifications")
+            self.etat.sauver_sans_faute()
+            return []
+
         alertes = comparer(precedent, snapshot.categories)
 
         persiste["categories"] = en_etat(snapshot.categories)
@@ -64,7 +77,10 @@ class Veilleur:
         self.etat.incrementer("verifications")
         if alertes:
             self.etat.incrementer("alertes", len(alertes))
-        self.etat.sauver()  # AVANT notification (F5)
+        # AVANT notification (F5). Si l'écriture échoue (verrou, disque plein), l'état
+        # reste en mémoire : pas de répétition tant que le processus vit, et on notifie
+        # quand même — perdre l'alerte serait pire qu'un doublon rarissime après crash.
+        self.etat.sauver_sans_faute()
 
         if precedent is None:
             logger.info(
@@ -92,19 +108,19 @@ class Veilleur:
             logger.exception("%s : erreur inattendue — les autres événements continuent", ev.libelle)
             self._noter_erreur(ev, "erreur interne")
         else:
-            if self._erreurs.pop(ev.tm_event_id, 0):
+            if self._erreurs.pop(ev.cle, 0):
                 logger.info("%s : retour à la normale, intervalle nominal rétabli", ev.libelle)
 
     def _noter_erreur(self, ev: Evenement, motif: str) -> None:
-        n = self._erreurs.get(ev.tm_event_id, 0) + 1
-        self._erreurs[ev.tm_event_id] = n
+        n = self._erreurs.get(ev.cle, 0) + 1
+        self._erreurs[ev.cle] = n
         self.etat.incrementer("erreurs")
-        self.etat.sauver()
+        self.etat.sauver_sans_faute()
         logger.warning("%s : relevé en échec (%s) — %d échec(s) consécutif(s)", ev.libelle, motif, n)
 
     def _prochain_delai(self, ev: Evenement) -> float:
         base = float(self.config.intervalle_secondes)
-        n = self._erreurs.get(ev.tm_event_id, 0)
+        n = self._erreurs.get(ev.cle, 0)
         delai = min(base * (2**n), float(self.config.backoff_max_secondes))
         if self.config.jitter_secondes:
             delai += self._alea(0.0, float(self.config.jitter_secondes))
@@ -122,7 +138,7 @@ class Veilleur:
         """run : surveillance continue (interrompue par KeyboardInterrupt)."""
         maintenant = self._monotone()
         for ev in self.config.evenements:
-            self._echeances[ev.tm_event_id] = maintenant  # premier relevé immédiat
+            self._echeances[ev.cle] = maintenant  # premier relevé immédiat
         logger.info(
             "surveillance démarrée : %d événement(s), intervalle %d s (+ jitter 0..%d s)",
             len(self.config.evenements), self.config.intervalle_secondes, self.config.jitter_secondes,
@@ -131,9 +147,9 @@ class Veilleur:
         while True:
             maintenant = self._monotone()
             for ev in self.config.evenements:
-                if maintenant >= self._echeances[ev.tm_event_id]:
+                if maintenant >= self._echeances[ev.cle]:
                     self._verifier_avec_isolation(ev)
-                    self._echeances[ev.tm_event_id] = self._monotone() + self._prochain_delai(ev)
+                    self._echeances[ev.cle] = self._monotone() + self._prochain_delai(ev)
             if self._monotone() - self._derniere_synthese >= SYNTHESE_INTERVALLE_S:
                 self._derniere_synthese = self._monotone()
                 c = self.etat.compteurs()

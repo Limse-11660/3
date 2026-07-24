@@ -21,6 +21,11 @@ logger = logging.getLogger(__name__)
 TENTATIVES = 3
 ATTENTE_429_DEFAUT_S = 2.0
 ATTENTE_429_MAX_S = 30.0
+# Limites Discord : content <= 2000, description d'embed <= 4096. Un message trop long
+# serait refusé (400) et l'alerte perdue — on borne avec marge.
+MAX_LIGNES_ALERTE = 15
+LIMITE_DESCRIPTION = 4000
+LIMITE_CONTENU = 1900
 ATTENTE_ERREUR_RESEAU_S = 1.0
 USER_AGENT = "veilleur-tm/1.0 (usage personnel)"
 COULEUR_DISPONIBILITE = 0x2ECC71  # vert
@@ -42,14 +47,17 @@ def _ligne_alerte(a: Alerte) -> str:
 
 def construire_message(libelle: str, url: str, alertes: list[Alerte]) -> dict[str, Any]:
     """Message Discord d'une détection : catégories concernées + places (F6)."""
+    lignes = [_ligne_alerte(a) for a in alertes[:MAX_LIGNES_ALERTE]]
+    if len(alertes) > MAX_LIGNES_ALERTE:
+        lignes.append(f"… et {len(alertes) - MAX_LIGNES_ALERTE} autre(s) catégorie(s)")
     embed = {
         "title": f"🎟️ {libelle} — disponibilité détectée",
         "color": COULEUR_DISPONIBILITE,
         "url": url,
-        "description": "\n".join(_ligne_alerte(a) for a in alertes),
+        "description": "\n".join(lignes)[:LIMITE_DESCRIPTION],
         "footer": {"text": _heure_locale()},
     }
-    contenu = f"🎟️ **{libelle}** — " + " ; ".join(a.categorie for a in alertes)
+    contenu = (f"🎟️ **{libelle}** — " + " ; ".join(a.categorie for a in alertes))[:LIMITE_CONTENU]
     return {"content": contenu, "embeds": [embed]}
 
 

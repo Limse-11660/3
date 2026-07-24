@@ -75,12 +75,26 @@ def test_429_retry_after_dans_le_corps_et_plafond():
     assert attentes == [notify.ATTENTE_429_MAX_S]  # plafonné, jamais 120 s
 
 
+def test_message_massif_reste_dans_les_limites_discord():
+    alertes = [Alerte("reouverture", f"Catégorie très longue numéro {i} " + "x" * 80) for i in range(60)]
+    msg = notify.construire_message("Concert X", "https://t.fr", alertes)
+    assert len(msg["content"]) <= 2000
+    assert len(msg["embeds"][0]["description"]) <= 4096
+    assert "autre(s) catégorie(s)" in msg["embeds"][0]["description"]
+
+
 def test_erreur_reseau_epuisee_retourne_false():
+    tentatives = []
+
     def post(url, json=None, timeout=None, headers=None):
+        tentatives.append(1)
         raise requests.ConnectionError("coupé")
 
-    ok = notify.envoyer("https://hook", {}, post=post, sleep=lambda s: None)
+    attentes = []
+    ok = notify.envoyer("https://hook", {}, post=post, sleep=attentes.append)
     assert ok is False
+    assert len(tentatives) == notify.TENTATIVES  # exactement 3, jamais plus
+    assert attentes == [notify.ATTENTE_ERREUR_RESEAU_S] * (notify.TENTATIVES - 1)
 
 
 def test_refus_definitif_retourne_false():

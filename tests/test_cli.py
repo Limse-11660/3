@@ -68,3 +68,12 @@ def test_main_config_absente_code_1(tmp_path, capsys):
     with pytest.raises(SystemExit) as sortie:
         main(["list", "--config", str(tmp_path / "absent.yaml")])
     assert sortie.value.code == 1
+
+
+def test_main_config_invalide_message_propre(tmp_path, capsys):
+    chemin = tmp_path / "config.yaml"
+    chemin.write_text("evenements: []\n", encoding="utf-8")
+    with pytest.raises(SystemExit) as sortie:
+        main(["list", "--config", str(chemin)])
+    assert sortie.value.code == 1
+    assert "Configuration invalide" in capsys.readouterr().err
