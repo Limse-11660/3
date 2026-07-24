@@ -1,0 +1,31 @@
+# === veilleur — configuration ===
+# Copier ce fichier en config.yaml puis renseigner webhook et événements.
+# config.yaml est ignoré par git (le webhook est un secret).
+
+# Webhook Discord (F6). NB : l'URL fournie dans le cahier des charges v1.1 répondait
+# HTTP 401 (jeton invalide) au 2026-07-24 — en régénérer un dans Discord si besoin.
+webhook_discord: "https://discord.com/api/webhooks/XXXX/YYYY"
+
+# F7 : planning. Intervalle minimal 60 s (plancher rejeté en dessous) ; le jitter est
+# un retard aléatoire 0..N s ajouté à chaque vérification (jamais d'anticipation).
+intervalle_secondes: 60
+jitter_secondes: 5
+
+# §5.1 : backoff sur erreurs — l'intervalle d'un événement en échec double à chaque
+# échec consécutif, plafonné ici (secondes).
+backoff_max_secondes: 900
+
+timeout_secondes: 15
+user_agent: "veilleur-tm/1.0 (usage personnel)"
+etat_fichier: ./state.json
+verbosite: INFO            # DEBUG | INFO | WARNING | ERROR
+
+# F1 : événements à surveiller. 'libelle' et 'categories' sont optionnels ;
+# 'categories' filtre les libellés de séances/catégories (insensible casse/accents).
+evenements:
+  - url: https://www.ticketmaster.fr/fr/manifestation/exemple-billet/idmanif/123456
+    libelle: Concert exemple — Paris
+  - url: https://www.ticketmaster.fr/fr/manifestation/exemple2-billet/idmanif/654321
+    libelle: Festival exemple — Lyon
+    categories:
+      - samedi
