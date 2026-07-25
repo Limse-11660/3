@@ -49,9 +49,11 @@ class Etat:
         # Assainissement : une entrée d'événement mal formée (types inattendus) ne doit
         # pas mettre l'événement en échec permanent — elle est écartée (nouvelle baseline).
         for cle, valeur in data["evenements"].items():
-            if isinstance(valeur, dict) and (
-                valeur.get("categories") is None or isinstance(valeur.get("categories"), dict)
-            ):
+            cats = valeur.get("categories") if isinstance(valeur, dict) else "invalide"
+            feuilles_ok = cats is None or (
+                isinstance(cats, dict) and all(isinstance(v, dict) for v in cats.values())
+            )
+            if isinstance(valeur, dict) and feuilles_ok:
                 etat.data["evenements"][cle] = valeur
             else:
                 logger.warning("état de %r mal formé — entrée écartée, nouvelle baseline", cle)

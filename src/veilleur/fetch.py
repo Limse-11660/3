@@ -28,6 +28,7 @@ from veilleur.models import (
     AvailabilitySnapshot,
     CategoryAvailability,
     FetchError,
+    FileAttente,
     PageIntrouvable,
     ParseInvalide,
     RateLimited,
@@ -190,7 +191,7 @@ class ClientTicketmaster:
         if 300 <= code < 400:
             destination = reponse.headers.get("location", "")
             if "wait.ticketmaster" in destination or "queue" in destination.lower():
-                raise RateLimited(f"file d'attente active ({destination!r})")
+                raise FileAttente("file d'attente active")
             raise FetchError(f"redirection inattendue {code} -> {destination!r}")
         if code in (404, 410):
             raise PageIntrouvable(f"HTTP {code}")

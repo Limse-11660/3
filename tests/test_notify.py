@@ -38,6 +38,20 @@ def test_message_avec_places_connues():
     assert "12 place(s)" in msg["embeds"][0]["description"]
 
 
+def test_message_etat_initial_liste_les_disponibles():
+    from veilleur.models import CategoryAvailability as Cat
+
+    msg = notify.message_etat_initial(
+        "Celine Dion", "https://t.fr", [Cat("Carré Or", True, prix="150.0"), Cat("Cat 2", False)]
+    )
+    embed = msg["embeds"][0]
+    assert "surveillance active" in embed["title"]
+    assert "2 catégorie(s), dont 1 disponible(s)" in embed["description"]
+    assert "Carré Or" in embed["description"]
+    assert "150.0" in embed["description"]
+    assert msg["allowed_mentions"] == {"parse": []}
+
+
 def test_message_test_est_un_embed():
     msg = notify.message_test()
     assert "test" in msg["embeds"][0]["title"].lower()

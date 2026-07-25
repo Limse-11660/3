@@ -100,7 +100,26 @@ def test_meme_idmanif_filtres_differents_accepte_avec_cles_distinctes(tmp_path):
     cles = [ev.cle for ev in cfg.evenements]
     assert len(set(cles)) == 2  # jamais de collision d'état entre les deux entrées
     assert cles[0] == "642735"
-    assert cles[1] == "642735#Fosse"
+    assert cles[1].startswith("642735#")
+
+
+def test_cle_injective_meme_avec_separateur_dans_le_filtre():
+    from veilleur.config import Evenement
+
+    a = Evenement(url="https://www.ticketmaster.fr/x/idmanif/1", tm_event_id="1",
+                  libelle="A", categories=("a|b",))
+    b = Evenement(url="https://www.ticketmaster.fr/x/idmanif/1", tm_event_id="1",
+                  libelle="B", categories=("a", "b"))
+    assert a.cle != b.cle
+
+
+def test_idmanif_hors_chemin_rejete(tmp_path):
+    # idmanif dans la query string : refusé (le chemin seul fait foi)
+    with pytest.raises(ConfigError):
+        load_config(_ecrire(
+            tmp_path,
+            "evenements:\n  - url: https://www.ticketmaster.fr/fr/page?u=/idmanif/999\n",
+        ))
 
 
 def test_webhook_charge(tmp_path):

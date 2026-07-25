@@ -6,8 +6,13 @@ import pytest
 
 from veilleur import notify
 from veilleur.config import Config, Evenement
-from veilleur.models import AvailabilitySnapshot, CategoryAvailability as Cat, FetchError
-from veilleur.runner import Veilleur
+from veilleur.models import (
+    AvailabilitySnapshot,
+    CategoryAvailability as Cat,
+    FetchError,
+    FileAttente,
+)
+from veilleur.runner import PLAFOND_FILE_ATTENTE_S, SEUIL_VIDES_CONSECUTIFS, Veilleur
 from veilleur.state import Etat
 
 EV_A = Evenement(url="https://www.ticketmaster.fr/a/idmanif/1111", tm_event_id="1111", libelle="A")
@@ -146,17 +151,19 @@ def test_meme_idmanif_deux_entrees_etats_et_baselines_separes(tmp_path, monkeypa
     monkeypatch.setattr(notify, "envoyer", lambda *a, **k: envois.append(a) or True)
     ev_tout = EV_A
     ev_filtre = Evenement(url=EV_A.url, tm_event_id="1111", libelle="A-fosse", categories=("fosse",))
+    cle_filtre = ev_filtre.cle
     plan = {
         "1111": [_snap("1111", [Cat("Fosse", True), Cat("Balcon", True)])] * 2,
-        "1111#fosse": [_snap("1111", [Cat("Fosse", True)])] * 2,
+        cle_filtre: [_snap("1111", [Cat("Fosse", True)])] * 2,
     }
     v = _veilleur(tmp_path, plan, evenements=[ev_tout, ev_filtre])
     v.balayer_une_fois()
+    n_initial = len(envois)  # messages « état initial » des 2 baselines (disponibles)
     v.balayer_une_fois()
-    assert envois == []  # deux baselines distinctes puis relevés stables : zéro alerte
+    assert len(envois) == n_initial  # relevés stables : AUCUNE alerte ensuite
     assert v.etat.compteurs()["alertes"] == 0
     assert "1111" in v.etat.data["evenements"]
-    assert "1111#fosse" in v.etat.data["evenements"]
+    assert cle_filtre in v.etat.data["evenements"]
 
 
 def test_meme_idmanif_deux_entrees_toutes_sondees_en_boucle(tmp_path, monkeypatch):
@@ -165,7 +172,7 @@ def test_meme_idmanif_deux_entrees_toutes_sondees_en_boucle(tmp_path, monkeypatc
     ev_filtre = Evenement(url=EV_A.url, tm_event_id="1111", libelle="A-fosse", categories=("fosse",))
     v = _veilleur(
         tmp_path,
-        {"1111": [_snap("1111", [])], "1111#fosse": [_snap("1111", [])]},
+        {"1111": [_snap("1111", [])], ev_filtre.cle: [_snap("1111", [])]},
         evenements=[EV_A, ev_filtre],
     )
 
@@ -175,7 +182,7 @@ def test_meme_idmanif_deux_entrees_toutes_sondees_en_boucle(tmp_path, monkeypatc
     v._sleep = sommeil_interrompu
     with pytest.raises(KeyboardInterrupt):
         v.boucle()
-    assert sorted(v.client.releves) == ["1111", "1111#fosse"]
+    assert sorted(v.client.releves) == sorted(["1111", ev_filtre.cle])
 
 
 def test_releve_vide_transitoire_conserve_l_etat(tmp_path, monkeypatch):
@@ -193,11 +200,77 @@ def test_releve_vide_transitoire_conserve_l_etat(tmp_path, monkeypatch):
             ]
         },
     )
-    v.verifier_evenement(EV_A)  # baseline
+    v.verifier_evenement(EV_A)  # baseline (avec disponible -> 1 message d'état initial)
+    n_initial = len(envois)
     assert v.verifier_evenement(EV_A) == []  # vide transitoire : état conservé
     assert v.etat.evenement(EV_A.cle)["categories"]["Fosse"]["disponible"] is True
     assert v.verifier_evenement(EV_A) == []  # retour : rien de nouveau -> aucune alerte
-    assert envois == []
+    assert len(envois) == n_initial
+
+
+def test_vide_durable_acte_puis_retour_realerte(tmp_path, monkeypatch):
+    # Après SEUIL_VIDES_CONSECUTIFS relevés vides, le vide devient l'état : une vraie
+    # réouverture ultérieure doit être réalertée (elle était manquée avant le correctif)
+    envois = []
+    monkeypatch.setattr(notify, "envoyer", lambda *a, **k: envois.append(a) or True)
+    releves = (
+        [_snap("1111", [Cat("Fosse", True)])]
+        + [_snap("1111", [])] * SEUIL_VIDES_CONSECUTIFS
+        + [_snap("1111", [Cat("Fosse", True)])]
+    )
+    v = _veilleur(tmp_path, {"1111": releves})
+    v.verifier_evenement(EV_A)  # baseline (1 message d'état initial)
+    n_initial = len(envois)
+    for _ in range(SEUIL_VIDES_CONSECUTIFS - 1):
+        assert v.verifier_evenement(EV_A) == []  # conservé
+    assert v.verifier_evenement(EV_A) == []  # vide acté : état = {}
+    assert v.etat.evenement(EV_A.cle)["categories"] == {}
+    alertes = v.verifier_evenement(EV_A)  # retour de Fosse
+    assert [a.type for a in alertes] == ["nouvelle_categorie"]
+    assert len(envois) == n_initial + 1
+
+
+def test_notification_etat_initial_si_disponible(tmp_path, monkeypatch):
+    envois = []
+    monkeypatch.setattr(notify, "envoyer", lambda url, msg, **k: envois.append(msg) or True)
+    v = _veilleur(tmp_path, {"1111": [_snap("1111", [Cat("Fosse", True), Cat("Or", False)])]})
+    assert v.verifier_evenement(EV_A) == []  # baseline : pas d'alerte...
+    assert len(envois) == 1  # ...mais un signal « surveillance active »
+    assert "surveillance active" in envois[0]["embeds"][0]["title"]
+
+
+def test_pas_de_notification_etat_initial_sans_disponible(tmp_path, monkeypatch):
+    envois = []
+    monkeypatch.setattr(notify, "envoyer", lambda *a, **k: envois.append(a) or True)
+    v = _veilleur(tmp_path, {"1111": [_snap("1111", [Cat("Fosse", False)])]})
+    v.verifier_evenement(EV_A)
+    assert envois == []  # tout épuisé au lancement : démarrage silencieux
+
+
+def test_plafond_backoff_file_d_attente(tmp_path, monkeypatch):
+    # File d'attente permanente (cas NFL/Céline Dion) : le délai ne dépasse jamais 300 s,
+    # pour capter la levée de la file sans attendre jusqu'à 15 min
+    monkeypatch.setattr(notify, "envoyer", lambda *a, **k: True)
+    v = _veilleur(tmp_path, {"1111": [FileAttente("file d'attente active")] * 6})
+    for _ in range(6):
+        v._verifier_avec_isolation(EV_A)
+    assert v._prochain_delai(EV_A) == PLAFOND_FILE_ATTENTE_S
+    # alors qu'une erreur ordinaire au même compteur monterait au plafond général (900 s)
+    v._en_file_attente.discard(EV_A.cle)
+    assert v._prochain_delai(EV_A) == 900.0
+
+
+def test_derniere_erreur_tracee_puis_purgee(tmp_path, monkeypatch):
+    monkeypatch.setattr(notify, "envoyer", lambda *a, **k: True)
+    v = _veilleur(
+        tmp_path, {"1111": [FetchError("panne"), _snap("1111", [Cat("Fosse", False)])]}
+    )
+    v._verifier_avec_isolation(EV_A)
+    trace = v.etat.evenement(EV_A.cle)["derniere_erreur"]
+    assert trace["motif"] == "panne"
+    assert trace["echecs_consecutifs"] == 1
+    v._verifier_avec_isolation(EV_A)  # relevé réussi
+    assert "derniere_erreur" not in v.etat.evenement(EV_A.cle)
 
 
 def test_echec_ecriture_etat_ne_tue_pas_la_surveillance(tmp_path, monkeypatch):

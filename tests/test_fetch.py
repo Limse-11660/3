@@ -4,7 +4,7 @@ import requests
 
 from veilleur.config import Evenement
 from veilleur.fetch import ClientTicketmaster, normaliser_libelle, parse_payload
-from veilleur.models import FetchError, PageIntrouvable, ParseInvalide, RateLimited
+from veilleur.models import FetchError, FileAttente, PageIntrouvable, ParseInvalide, RateLimited
 
 EV = Evenement(
     url="https://www.ticketmaster.fr/fr/manifestation/x-billet/idmanif/642735",
@@ -161,10 +161,11 @@ def test_429_503_rate_limited(code):
         client.relever(EV)
 
 
-def test_file_d_attente_traitee_comme_ralentissement():
+def test_file_d_attente_erreur_dediee():
+    # FileAttente distincte de RateLimited : son backoff est plafonné plus court
     reponse = FakeResponse(302, headers={"location": "https://wait.ticketmaster.fr/?c=x"})
     client, _, _ = _client([reponse])
-    with pytest.raises(RateLimited):
+    with pytest.raises(FileAttente):
         client.relever(EV)
 
 
@@ -211,7 +212,8 @@ def test_filtres_appliques_a_travers_relever():
     client, _, _ = _client([FakeResponse(200, PAYLOAD)])
     snap = client.relever(ev_filtre)
     assert [c.categorie for c in snap.categories] == ["Dimanche 19 juillet 2026 à 15:00"]
-    assert snap.event_key == "642735#dimanche"  # clé composite propre à l'entrée
+    assert snap.event_key == ev_filtre.cle  # clé composite propre à l'entrée
+    assert snap.event_key != "642735"
 
 
 def test_espacement_de_politesse_entre_requetes():

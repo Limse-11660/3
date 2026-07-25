@@ -74,6 +74,32 @@ def construire_message(libelle: str, url: str, alertes: list[Alerte]) -> dict[st
     return {"content": contenu, "embeds": [embed], "allowed_mentions": dict(AUCUNE_MENTION)}
 
 
+def message_etat_initial(libelle: str, url: str, categories: list) -> dict[str, Any]:
+    """Premier relevé réussi d'un événement AVEC du disponible : signal « surveillance
+    active ». C'est notamment le moment où une file d'attente se lève — sans ce message,
+    la baseline serait silencieuse à l'instant le plus utile."""
+    disponibles = [c for c in categories if c.disponible]
+    lignes = []
+    for c in disponibles[:MAX_LIGNES_ALERTE]:
+        prix = f" (dès {c.prix} €)" if c.prix else ""
+        lignes.append(f"**{c.categorie}**{prix}")
+    if len(disponibles) > MAX_LIGNES_ALERTE:
+        lignes.append(f"… et {len(disponibles) - MAX_LIGNES_ALERTE} autre(s)")
+    entete = (
+        f"Premier relevé réussi : {len(categories)} catégorie(s), "
+        f"dont {len(disponibles)} disponible(s)."
+    )
+    embed = {
+        "title": f"👁️ {libelle} — surveillance active"[:LIMITE_TITRE],
+        "color": COULEUR_TEST,
+        "url": url,
+        "description": "\n".join([entete, *lignes])[:LIMITE_DESCRIPTION],
+        "footer": {"text": _heure_locale()},
+    }
+    contenu = (f"👁️ **{libelle}** — surveillance active, {len(disponibles)} catégorie(s) disponible(s)")[:LIMITE_CONTENU]
+    return {"content": contenu, "embeds": [embed], "allowed_mentions": dict(AUCUNE_MENTION)}
+
+
 def message_test() -> dict[str, Any]:
     return {
         "embeds": [

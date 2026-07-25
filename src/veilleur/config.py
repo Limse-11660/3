@@ -38,7 +38,10 @@ class Evenement:
         """
         if not self.categories:
             return self.tm_event_id
-        return self.tm_event_id + "#" + "|".join(self.categories)
+        # json.dumps : encodage injectif — "|".join confondrait ("a|b",) et ("a", "b")
+        import json
+
+        return self.tm_event_id + "#" + json.dumps(list(self.categories), ensure_ascii=False)
 
 
 @dataclass
@@ -64,9 +67,9 @@ def _extraire_id(url: str) -> str:
     host = parsed.netloc.lower()
     if not (host == "ticketmaster.fr" or host.endswith(".ticketmaster.fr")):
         raise ConfigError(f"URL hors ticketmaster.fr : {url!r}")
-    m = RE_IDMANIF.search(url)
+    m = RE_IDMANIF.search(parsed.path)  # chemin uniquement : pas d'idmanif via query/fragment
     if not m:
-        raise ConfigError(f"idmanif introuvable dans l'URL : {url!r}")
+        raise ConfigError(f"idmanif introuvable dans le chemin de l'URL : {url!r}")
     return m.group(1)
 
 

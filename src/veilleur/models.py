@@ -13,7 +13,13 @@ class PageIntrouvable(FetchError):
 
 
 class RateLimited(FetchError):
-    """HTTP 429/503 ou file d'attente : le site demande de ralentir."""
+    """HTTP 429/503 : le site demande explicitement de ralentir."""
+
+
+class FileAttente(FetchError):
+    """Redirection vers la file d'attente (Queue-it) : revenir plus tard, sans jamais
+    la contourner. Distinct de RateLimited : ce n'est pas un rappel à l'ordre, le
+    backoff peut donc rester plus court pour capter la levée de la file."""
 
 
 class ParseInvalide(FetchError):
