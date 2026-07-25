@@ -216,11 +216,17 @@ def test_filtres_appliques_a_travers_relever():
     assert snap.event_key != "642735"
 
 
-def test_espacement_de_politesse_entre_requetes():
+def test_espacement_de_politesse_entre_requetes(monkeypatch):
+    # Horloge simulée : déterministe (pas de dépendance au temps réel de la machine)
+    import veilleur.fetch as fetch_mod
+
+    horloge = {"t": 100.0}
+    monkeypatch.setattr(fetch_mod.time, "monotonic", lambda: horloge["t"])
     client, _, dormeur = _client([FakeResponse(200, PAYLOAD), FakeResponse(200, PAYLOAD)])
-    client.relever(EV)
-    client.relever(EV)  # immédiatement après -> attente imposée
-    assert any(0.0 < d <= 1.0 for d in dormeur)
+    client.relever(EV)  # 1re requête : aucun espacement requis
+    horloge["t"] += 0.25
+    client.relever(EV)  # 250 ms plus tard -> complément exact jusqu'à 1 s
+    assert dormeur == [0.75]
 
 
 def test_erreur_reseau_deux_fois_puis_succes():

@@ -70,6 +70,7 @@ def test_entree_evenement_mal_formee_ecartee(tmp_path):
                     "111": {"categories": {"Fosse": {"disponible": True}}},
                     "222": {"categories": "pas-un-dict"},
                     "333": ["liste"],
+                    "444": {"categories": {"Fosse": "feuille-non-dict"}},
                 },
             }
         ),
@@ -79,6 +80,17 @@ def test_entree_evenement_mal_formee_ecartee(tmp_path):
     assert "111" in etat.data["evenements"]
     assert "222" not in etat.data["evenements"]  # écartée : nouvelle baseline
     assert "333" not in etat.data["evenements"]
+    assert "444" not in etat.data["evenements"]  # feuille non-dict : écartée aussi
+
+
+def test_sauver_appelle_fsync(tmp_path, monkeypatch):
+    # Durabilité : sans fsync, une coupure de courant peut laisser un state tronqué
+    appels = []
+    vrai_fsync = os.fsync
+    monkeypatch.setattr(os, "fsync", lambda fd: (appels.append(fd), vrai_fsync(fd)))
+    etat = Etat.charger(str(tmp_path / "state.json"))
+    etat.sauver()
+    assert len(appels) == 1
 
 
 def test_compteurs_partiels_completes(tmp_path):

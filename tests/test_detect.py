@@ -7,6 +7,13 @@ def test_baseline_sans_alerte():
     assert comparer(None, [Cat("Fosse", True, places=10)]) == []
 
 
+def test_baseline_vide_differente_de_baseline_absente():
+    # {} (baseline établie, plus rien à la vente) ≠ None (jamais relevé) : le retour
+    # d'une catégorie disponible sur baseline vide DOIT alerter
+    alertes = comparer(en_etat([]), [Cat("Fosse", True)])
+    assert [a.type for a in alertes] == ["nouvelle_categorie"]
+
+
 def test_reouverture_indisponible_vers_disponible():
     avant = en_etat([Cat("Fosse", False)])
     alertes = comparer(avant, [Cat("Fosse", True)])

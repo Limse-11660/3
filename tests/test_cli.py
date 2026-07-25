@@ -70,6 +70,56 @@ def test_main_config_absente_code_1(tmp_path, capsys):
     assert sortie.value.code == 1
 
 
+def _config_pour(tmp_path):
+    import json as json_mod
+
+    chemin = tmp_path / "config.yaml"
+    chemin.write_text(
+        f"etat_fichier: {json_mod.dumps(str(tmp_path / 'state.json'))}\n"
+        "evenements:\n"
+        "  - url: https://www.ticketmaster.fr/fr/manifestation/x-billet/idmanif/642735\n"
+        "    libelle: Concert X\n",
+        encoding="utf-8",
+    )
+    return chemin
+
+
+def test_main_check_once_de_bout_en_bout(tmp_path, capsys, monkeypatch):
+    # F9 : check-once complet (config réelle, client simulé), état écrit sur disque
+    from datetime import datetime, timezone
+
+    from veilleur.fetch import ClientTicketmaster
+    from veilleur.models import AvailabilitySnapshot
+
+    def faux_relever(self, ev):
+        return AvailabilitySnapshot(
+            ev.cle, ev.tm_event_id, datetime.now(timezone.utc).isoformat(), ()
+        )
+
+    monkeypatch.setattr(ClientTicketmaster, "relever", faux_relever)
+    with pytest.raises(SystemExit) as sortie:
+        main(["check-once", "--config", str(_config_pour(tmp_path))])
+    assert sortie.value.code == 0
+    assert "1 événement(s) vérifié(s)" in capsys.readouterr().out
+    assert (tmp_path / "state.json").exists()
+
+
+def test_main_run_interrompu_libere_le_verrou(tmp_path, monkeypatch):
+    # F9 : run construit le veilleur, pose le verrou, et le libère même sur Ctrl+C
+    from veilleur.runner import Veilleur
+
+    def boucle_interrompue(self):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(Veilleur, "boucle", boucle_interrompue)
+    with pytest.raises(SystemExit) as sortie:
+        main(["run", "--config", str(_config_pour(tmp_path))])
+    assert sortie.value.code == 0
+    verrou = _acquerir_verrou(str(tmp_path / "state.json"))
+    assert verrou is not None  # bien libéré après l'arrêt
+    verrou.close()
+
+
 def test_verrou_mono_instance_refuse_la_seconde(tmp_path):
     chemin = str(tmp_path / "state.json")
     premier = _acquerir_verrou(chemin)

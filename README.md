@@ -10,30 +10,40 @@ dans un fichier JSON. Aucune dépendance à un navigateur ou à une base de donn
 
 ## Installation
 
-```bash
+```bat
 py -3 -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
-copy config.example.yaml config.yaml    # puis renseigner webhook + événements
+.venv\Scripts\python -m pip install -e .
+copy config.example.yaml config.yaml
 ```
+
+Puis renseigner le webhook et les événements dans `config.yaml`. L'étape `pip install -e .`
+est indispensable : c'est elle qui rend le paquet `veilleur` importable.
 
 ## Commandes (F9)
 
-```bash
-python -m veilleur list          # vérifier les événements chargés depuis config.yaml
-python -m veilleur test-notify   # notification de test sur le webhook Discord
-python -m veilleur check-once    # une passe : établit les baselines (aucune alerte)
-python -m veilleur run           # surveillance continue (Ctrl+C pour arrêter)
+```bat
+.venv\Scripts\python -m veilleur list          # vérifier les événements chargés
+.venv\Scripts\python -m veilleur test-notify   # notification de test sur le webhook
+.venv\Scripts\python -m veilleur check-once    # une passe : établit les baselines
+.venv\Scripts\python -m veilleur run           # surveillance continue (Ctrl+C pour arrêter)
 ```
 
-`--config chemin.yaml` s'écrit avant ou après la sous-commande.
+`--config chemin.yaml` s'écrit avant ou après la sous-commande. Au quotidien :
+double-cliquer `lancer.bat` (surveillance continue) ou `test-une-fois.bat` (une passe).
+`run` pose un verrou mono-instance : une seconde instance s'arrête net avec un message.
 
 ## Fonctionnement
 
-- **Premier relevé d'un événement = baseline** : l'état existant au lancement n'est
-  jamais notifié. Ensuite, chaque relevé est comparé au précédent (persisté dans
-  `state.json`) et seules les **transitions positives** déclenchent une alerte :
-  réouverture (indisponible → disponible), nouvelle catégorie disponible, quota en
-  hausse.
+- **Premier relevé d'un événement = baseline** : l'état existant au lancement ne
+  déclenche jamais d'alerte. S'il contient du disponible, un unique message
+  « 👁️ surveillance active » liste l'état initial (c'est notamment ainsi qu'une **levée
+  de file d'attente** est signalée) ; sinon le démarrage est silencieux. Ensuite, chaque
+  relevé est comparé au précédent (persisté dans `state.json`) et seules les
+  **transitions positives** déclenchent une alerte : réouverture (indisponible →
+  disponible), nouvelle catégorie disponible, quota en hausse.
+- **File d'attente (Queue-it)** : jamais contournée. L'événement est simplement resondé
+  plus tard, au plus toutes les 5 minutes, pour capter la levée de la file au plus tôt.
 - **Dé-doublonnage (F5)** : détection « sur front » + état écrit **avant** l'envoi de
   la notification — un crash pendant l'envoi ne rejoue jamais une alerte.
 - **Robustesse (§5.2)** : chaque événement est isolé ; en cas d'échec, son intervalle
@@ -63,6 +73,11 @@ python -m veilleur run           # surveillance continue (Ctrl+C pour arrêter)
 
 ## Limites assumées
 
+- L'endpoint n'émet aujourd'hui **ni ETag ni Last-Modified** (constaté le 2026-07-24 :
+  seulement `cache-control: max-age=60`) : le support des requêtes conditionnelles est
+  en place et testé, mais `reponses_304` restera à 0 tant que le site n'émet pas de
+  validateurs.
+
 - L'endpoint public interrogé (`liste-seance`) expose la disponibilité **par séance**
   (disponible / épuisé, prix minimum) mais **pas le nombre de places** : quand le site
   ne l'expose pas, l'alerte l'indique (« nombre non exposé par le site »). Obtenir les
@@ -73,6 +88,6 @@ python -m veilleur run           # surveillance continue (Ctrl+C pour arrêter)
 
 ## Tests
 
-```bash
+```bat
 .venv\Scripts\python -m pytest -q
 ```

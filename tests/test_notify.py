@@ -123,6 +123,13 @@ def test_message_massif_reste_dans_les_limites_discord():
     assert "autre(s) catégorie(s)" in msg["embeds"][0]["description"]
 
 
+def test_description_bornee_meme_sous_le_plafond_de_lignes():
+    # 15 lignes de ~400 caractères : c'est la borne LIMITE_DESCRIPTION qui protège
+    alertes = [Alerte("reouverture", "C" * 400) for _ in range(15)]
+    msg = notify.construire_message("X", "https://t.fr", alertes)
+    assert len(msg["embeds"][0]["description"]) <= 4096
+
+
 def test_erreur_reseau_epuisee_retourne_false():
     tentatives = []
 
