@@ -19,6 +19,9 @@ timeout_secondes: 15
 user_agent: "veilleur-tm/1.0 (usage personnel)"
 etat_fichier: ./state.json
 verbosite: INFO            # DEBUG | INFO | WARNING | ERROR
+# Journal sur fichier (rotatif 2 Mo x 3) en plus de la console — indispensable quand le
+# veilleur tourne sans fenetre (demarrage automatique). "" = console seule.
+journal_fichier: ./veilleur.log
 
 # F1 : événements à surveiller. 'libelle' et 'categories' sont optionnels ;
 # 'categories' filtre les libellés de séances/catégories (insensible casse/accents).

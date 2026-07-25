@@ -41,10 +41,21 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _setup_logging(verbosite: str) -> None:
+def _setup_logging(config: Config) -> None:
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    if config.journal_fichier:
+        from logging.handlers import RotatingFileHandler
+
+        handlers.append(
+            RotatingFileHandler(
+                config.journal_fichier, maxBytes=2_000_000, backupCount=3, encoding="utf-8"
+            )
+        )
     logging.basicConfig(
-        level=getattr(logging, verbosite.upper(), logging.INFO),
+        level=getattr(logging, config.verbosite.upper(), logging.INFO),
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+        handlers=handlers,
+        force=True,
     )
 
 
@@ -142,7 +153,7 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Configuration invalide : {exc}", file=sys.stderr)
         sys.exit(1)
 
-    _setup_logging(config.verbosite)
+    _setup_logging(config)
     handlers = {
         "run": cmd_run,
         "check-once": cmd_check_once,

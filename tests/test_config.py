@@ -122,6 +122,12 @@ def test_idmanif_hors_chemin_rejete(tmp_path):
         ))
 
 
+def test_journal_fichier_defaut_et_desactivation(tmp_path):
+    assert load_config(_ecrire(tmp_path, MINIMAL)).journal_fichier == "./veilleur.log"
+    cfg = load_config(_ecrire(tmp_path, MINIMAL + 'journal_fichier: ""\n'))
+    assert cfg.journal_fichier == ""  # console seule
+
+
 def test_webhook_charge(tmp_path):
     cfg = load_config(_ecrire(tmp_path, MINIMAL + "webhook_discord: https://discord.com/api/webhooks/a/b\n"))
     assert cfg.webhook_discord == "https://discord.com/api/webhooks/a/b"

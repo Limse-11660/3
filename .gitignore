@@ -2,6 +2,7 @@
 config.yaml
 state.json
 state.json.*
+veilleur.log*
 
 # environnement / caches Python
 .venv/

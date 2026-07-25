@@ -33,6 +33,16 @@ est indispensable : c'est elle qui rend le paquet `veilleur` importable.
 double-cliquer `lancer.bat` (surveillance continue) ou `test-une-fois.bat` (une passe).
 `run` pose un verrou mono-instance : une seconde instance s'arrête net avec un message.
 
+## Démarrage automatique (Windows)
+
+Double-cliquer `installer-demarrage-auto.bat` : un raccourci « veilleur-tm » est posé
+dans le dossier Démarrage de la session (aucun droit administrateur requis) et lance le
+veilleur **sans fenêtre** (pythonw) à chaque ouverture de session — il survit donc aux
+redémarrages du PC. Le suivi se fait alors via `veilleur.log` (journal rotatif,
+voir `journal_fichier` dans config.yaml) et les notifications Discord. Le verrou
+mono-instance empêche tout doublon si `lancer.bat` est lancé en plus par erreur.
+Pour arrêter et désinstaller : `desinstaller-demarrage-auto.bat`.
+
 ## Fonctionnement
 
 - **Premier relevé d'un événement = baseline** : l'état existant au lancement ne

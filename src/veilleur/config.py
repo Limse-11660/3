@@ -55,6 +55,9 @@ class Config:
     user_agent: str = "veilleur-tm/1.0 (usage personnel)"
     etat_fichier: str = "./state.json"
     verbosite: str = "INFO"
+    # Journal sur fichier (rotatif, 2 Mo x 3) en plus de la console — indispensable
+    # quand le veilleur tourne sans fenêtre (tâche planifiée). "" = console seule.
+    journal_fichier: str = "./veilleur.log"
 
 
 def _extraire_id(url: str) -> str:
@@ -113,6 +116,7 @@ def load_config(path: str) -> Config:
             user_agent=str(brut.get("user_agent") or Config.user_agent),
             etat_fichier=str(brut.get("etat_fichier") or "./state.json"),
             verbosite=str(brut.get("verbosite") or "INFO"),
+            journal_fichier=str(brut.get("journal_fichier", Config.journal_fichier) or ""),
         )
     except (TypeError, ValueError) as exc:
         raise ConfigError(f"valeur de configuration invalide : {exc}") from exc

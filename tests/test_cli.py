@@ -76,6 +76,7 @@ def _config_pour(tmp_path):
     chemin = tmp_path / "config.yaml"
     chemin.write_text(
         f"etat_fichier: {json_mod.dumps(str(tmp_path / 'state.json'))}\n"
+        'journal_fichier: ""\n'  # hermétique : pas d'écriture dans le veilleur.log du projet
         "evenements:\n"
         "  - url: https://www.ticketmaster.fr/fr/manifestation/x-billet/idmanif/642735\n"
         "    libelle: Concert X\n",
@@ -118,6 +119,22 @@ def test_main_run_interrompu_libere_le_verrou(tmp_path, monkeypatch):
     verrou = _acquerir_verrou(str(tmp_path / "state.json"))
     assert verrou is not None  # bien libéré après l'arrêt
     verrou.close()
+
+
+def test_journal_fichier_recoit_les_lignes(tmp_path):
+    import logging
+
+    from veilleur.__main__ import _setup_logging
+
+    chemin = tmp_path / "veilleur.log"
+    _setup_logging(Config(evenements=[EV], journal_fichier=str(chemin)))
+    logging.getLogger("veilleur.test").info("ligne de contrôle")
+    racine = logging.getLogger()
+    for h in list(racine.handlers):
+        h.flush()
+        h.close()
+    racine.handlers.clear()
+    assert "ligne de contrôle" in chemin.read_text(encoding="utf-8")
 
 
 def test_verrou_mono_instance_refuse_la_seconde(tmp_path):
