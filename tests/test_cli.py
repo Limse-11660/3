@@ -1,8 +1,8 @@
-"""F9 : CLI — analyse des arguments et commandes list / test-notify."""
+"""F9 : CLI — analyse des arguments, commandes list / test-notify, verrou mono-instance."""
 import pytest
 
 from veilleur import notify
-from veilleur.__main__ import build_parser, cmd_list, cmd_test_notify, main
+from veilleur.__main__ import _acquerir_verrou, build_parser, cmd_list, cmd_test_notify, main
 from veilleur.config import Config, Evenement
 
 EV = Evenement(
@@ -68,6 +68,17 @@ def test_main_config_absente_code_1(tmp_path, capsys):
     with pytest.raises(SystemExit) as sortie:
         main(["list", "--config", str(tmp_path / "absent.yaml")])
     assert sortie.value.code == 1
+
+
+def test_verrou_mono_instance_refuse_la_seconde(tmp_path):
+    chemin = str(tmp_path / "state.json")
+    premier = _acquerir_verrou(chemin)
+    assert premier is not None
+    assert _acquerir_verrou(chemin) is None  # une instance tourne déjà
+    premier.close()  # fin de la première instance : le verrou tombe
+    second = _acquerir_verrou(chemin)
+    assert second is not None
+    second.close()
 
 
 def test_main_config_invalide_message_propre(tmp_path, capsys):

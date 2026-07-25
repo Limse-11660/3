@@ -75,6 +75,32 @@ def test_429_retry_after_dans_le_corps_et_plafond():
     assert attentes == [notify.ATTENTE_429_MAX_S]  # plafonné, jamais 120 s
 
 
+def test_jeton_webhook_jamais_dans_les_journaux(caplog):
+    # Les exceptions requests embarquent l'URL complète : le jeton doit être caviardé
+    def post(url, json=None, timeout=None, headers=None):
+        raise requests.ConnectionError(
+            "HTTPSConnectionPool: Max retries exceeded with url: "
+            "/api/webhooks/1509177237763784745/r4YpSTc-SECRET-JETON"
+        )
+
+    with caplog.at_level("WARNING"):
+        notify.envoyer("https://hook", {}, post=post, sleep=lambda s: None)
+    journal = caplog.text
+    assert "SECRET-JETON" not in journal
+    assert "/api/webhooks/***" in journal
+
+
+def test_aucune_mention_declenchable_par_le_contenu():
+    msg = notify.construire_message("X", "https://t.fr", [Alerte("reouverture", "@everyone gratuit")])
+    assert msg["allowed_mentions"] == {"parse": []}
+    assert notify.message_test()["allowed_mentions"] == {"parse": []}
+
+
+def test_titre_borne_a_256():
+    msg = notify.construire_message("L" * 400, "https://t.fr", [Alerte("reouverture", "Fosse")])
+    assert len(msg["embeds"][0]["title"]) <= 256
+
+
 def test_message_massif_reste_dans_les_limites_discord():
     alertes = [Alerte("reouverture", f"Catégorie très longue numéro {i} " + "x" * 80) for i in range(60)]
     msg = notify.construire_message("Concert X", "https://t.fr", alertes)

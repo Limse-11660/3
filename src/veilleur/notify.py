@@ -8,6 +8,7 @@ explicite pour accepter les POST.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -18,14 +19,26 @@ from veilleur.models import Alerte
 
 logger = logging.getLogger(__name__)
 
+# Les exceptions requests contiennent l'URL complète du webhook (jeton inclus) : tout
+# texte d'erreur est caviardé avant journalisation — le jeton ne doit jamais fuiter.
+_RE_WEBHOOK = re.compile(r"/api/webhooks/\d+/[\w.\-]+")
+
+
+def _caviarder(texte: str) -> str:
+    return _RE_WEBHOOK.sub("/api/webhooks/***", texte)
+
 TENTATIVES = 3
 ATTENTE_429_DEFAUT_S = 2.0
 ATTENTE_429_MAX_S = 30.0
-# Limites Discord : content <= 2000, description d'embed <= 4096. Un message trop long
-# serait refusé (400) et l'alerte perdue — on borne avec marge.
+# Limites Discord : content <= 2000, description d'embed <= 4096, titre <= 256. Un
+# message trop long serait refusé (400) et l'alerte perdue — on borne avec marge.
 MAX_LIGNES_ALERTE = 15
 LIMITE_DESCRIPTION = 4000
 LIMITE_CONTENU = 1900
+LIMITE_TITRE = 256
+# Les libellés viennent du site : aucune mention (@everyone, @rôle...) ne doit pouvoir
+# être déclenchée par du contenu distant.
+AUCUNE_MENTION = {"parse": []}
 ATTENTE_ERREUR_RESEAU_S = 1.0
 USER_AGENT = "veilleur-tm/1.0 (usage personnel)"
 COULEUR_DISPONIBILITE = 0x2ECC71  # vert
@@ -51,14 +64,14 @@ def construire_message(libelle: str, url: str, alertes: list[Alerte]) -> dict[st
     if len(alertes) > MAX_LIGNES_ALERTE:
         lignes.append(f"… et {len(alertes) - MAX_LIGNES_ALERTE} autre(s) catégorie(s)")
     embed = {
-        "title": f"🎟️ {libelle} — disponibilité détectée",
+        "title": f"🎟️ {libelle} — disponibilité détectée"[:LIMITE_TITRE],
         "color": COULEUR_DISPONIBILITE,
         "url": url,
         "description": "\n".join(lignes)[:LIMITE_DESCRIPTION],
         "footer": {"text": _heure_locale()},
     }
     contenu = (f"🎟️ **{libelle}** — " + " ; ".join(a.categorie for a in alertes))[:LIMITE_CONTENU]
-    return {"content": contenu, "embeds": [embed]}
+    return {"content": contenu, "embeds": [embed], "allowed_mentions": dict(AUCUNE_MENTION)}
 
 
 def message_test() -> dict[str, Any]:
@@ -70,7 +83,8 @@ def message_test() -> dict[str, Any]:
                 "description": "Le webhook Discord fonctionne. (commande `test-notify`)",
                 "footer": {"text": _heure_locale()},
             }
-        ]
+        ],
+        "allowed_mentions": dict(AUCUNE_MENTION),
     }
 
 
@@ -107,7 +121,7 @@ def envoyer(
                 webhook_url, json=message, timeout=timeout_s, headers={"User-Agent": USER_AGENT}
             )
         except requests.RequestException as exc:
-            derniere = f"{type(exc).__name__}: {exc}"
+            derniere = _caviarder(f"{type(exc).__name__}: {exc}")
             logger.warning("envoi Discord : échec réseau (tentative %d/%d) : %s", tentative, TENTATIVES, derniere)
             if tentative < TENTATIVES:
                 sleep(ATTENTE_ERREUR_RESEAU_S)

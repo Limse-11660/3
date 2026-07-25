@@ -90,12 +90,42 @@ def cmd_check_once(config: Config) -> int:
     return 0
 
 
+def _acquerir_verrou(chemin_etat: str):
+    """Verrou mono-instance : deux `run` simultanés doubleraient le sondage du site et
+    les notifications. Retourne le fichier verrouillé (à garder ouvert jusqu'à la fin
+    du processus — le verrou tombe à sa fermeture), ou None si une instance tourne déjà."""
+    fichier = open(chemin_etat + ".lock", "a+", encoding="utf-8")
+    try:
+        try:
+            import msvcrt  # Windows
+
+            msvcrt.locking(fichier.fileno(), msvcrt.LK_NBLCK, 1)
+        except ImportError:
+            import fcntl  # POSIX
+
+            fcntl.flock(fichier.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fichier.close()
+        return None
+    return fichier
+
+
 def cmd_run(config: Config) -> int:
+    verrou = _acquerir_verrou(config.etat_fichier)
+    if verrou is None:
+        print(
+            "Une autre instance du veilleur tourne déjà (verrou sur "
+            f"{config.etat_fichier}.lock) — abandon pour éviter le double sondage.",
+            file=sys.stderr,
+        )
+        return 1
     veilleur = _construire(config)
     try:
         veilleur.boucle()
     except KeyboardInterrupt:
         logger.info("arrêt demandé (Ctrl+C) — état persisté, reprise possible")
+    finally:
+        verrou.close()
     return 0
 
 

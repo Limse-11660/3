@@ -77,6 +77,9 @@ def parse_payload(payload: Any, filtres: tuple[str, ...] = ()) -> list[CategoryA
             raise ParseInvalide("élément de liste inattendu (pas un objet)")
         labels = seance.get("labels") or []
         libelle = str(labels[0]) if labels else str(seance.get("dateSeance") or seance.get("idSeance") or "?")
+        # Contenu distant : borné et imprimable seulement (pas de forge de lignes de
+        # journal ni de payload Discord par caractères de contrôle)
+        libelle = "".join(c for c in libelle if c.isprintable()).strip()[:200] or "?"
         if filtres_norm and not any(f in normaliser_libelle(libelle) for f in filtres_norm):
             continue
         disponible = bool(seance.get("available"))

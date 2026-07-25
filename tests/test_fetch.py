@@ -46,6 +46,15 @@ def test_parse_element_non_objet_rejete():
         parse_payload(["chaine"])
 
 
+def test_libelle_distant_assaini_controle_et_borne():
+    payload = [{"labels": ["Fosse\nFAUSSE LIGNE DE LOG\x07" + "x" * 300], "available": True}]
+    cats = parse_payload(payload)
+    assert "\n" not in cats[0].categorie
+    assert "\x07" not in cats[0].categorie
+    assert len(cats[0].categorie) <= 200
+    assert cats[0].categorie.startswith("FosseFAUSSE")
+
+
 def test_filtre_insensible_casse_et_accents():
     assert normaliser_libelle("Carré Or") == "carre or"
     cats = parse_payload(PAYLOAD, filtres=("SAMEDI",))
